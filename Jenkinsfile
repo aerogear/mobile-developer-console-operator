@@ -98,37 +98,37 @@ pipeline {
             }
         }
         
-        // stage("Build test binary"){
-        //     steps{
-        //         dir("${env.CLONED_REPOSITORY_PATH}") {
-        //             script {
-        //                 sh "make test/compile"
-        //             }
-        //         }
-        //     }
-        //     post{
-        //         failure{
-        //             echo "====++++'Build test binary' execution failed++++===="
-        //             echo "Try to run 'make test/compile' locally and make sure it pass"
-        //         }
-        //     }
-        // }
-        // stage("Test operator") {
-        //     steps{
-        //         dir("${env.CLONED_REPOSITORY_PATH}") {
-        //             // qe-pipeline-library step
-        //             runOperatorTestWithImage (
-        //                 containerImageName: "${env.OPERATOR_CONTAINER_IMAGE_CANDIDATE_NAME}",
-        //                 namespace: "${env.OPENSHIFT_PROJECT_NAME}"
-        //             )
-        //         }
-        //     }
-        //     post{
-        //         failure{
-        //             echo "====++++Test operator execution failed++++===="
-        //         }
-        //     }
-        // }
+        stage("Build test binary"){
+            steps{
+                dir("${env.CLONED_REPOSITORY_PATH}") {
+                    script {
+                        sh "make test/compile"
+                    }
+                }
+            }
+            post{
+                failure{
+                    echo "====++++'Build test binary' execution failed++++===="
+                    echo "Try to run 'make test/compile' locally and make sure it pass"
+                }
+            }
+        }
+        stage("Test operator") {
+            steps{
+                dir("${env.CLONED_REPOSITORY_PATH}") {
+                    // qe-pipeline-library step
+                    runOperatorTestWithImage (
+                        containerImageName: "${env.OPERATOR_CONTAINER_IMAGE_CANDIDATE_NAME}",
+                        namespace: "${env.OPENSHIFT_PROJECT_NAME}"
+                    )
+                }
+            }
+            post{
+                failure{
+                    echo "====++++Test operator execution failed++++===="
+                }
+            }
+        }
         stage("Retag the image if the test passed and delete an old tag") {
             steps{
                 // qe-pipeline-library step
