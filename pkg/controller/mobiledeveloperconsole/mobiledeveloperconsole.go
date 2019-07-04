@@ -2,16 +2,16 @@ package mobiledeveloperconsole
 
 import (
 	"fmt"
-	"github.com/aerogear/mobile-developer-console-operator/pkg/util"
-	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/util/intstr"
-
 	mdcv1alpha1 "github.com/aerogear/mobile-developer-console-operator/pkg/apis/mdc/v1alpha1"
+	"github.com/aerogear/mobile-developer-console-operator/pkg/util"
 	openshiftappsv1 "github.com/openshift/api/apps/v1"
 	imagev1 "github.com/openshift/api/image/v1"
+	oauthv1 "github.com/openshift/api/oauth/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func newMDCServiceAccount(cr *mdcv1alpha1.MobileDeveloperConsole) (*corev1.ServiceAccount, error) {
@@ -233,8 +233,11 @@ func newMDCDeploymentConfig(cr *mdcv1alpha1.MobileDeveloperConsole) (*openshifta
 							},
 							Args: []string{
 								"--provider=openshift",
-								"--client-id=mobile-developer-console",
-								"--client-secret=SECRETPLACEHOLDER",
+								// need to prepend the CR namespace because
+								// there can be 2 MDC CRs with same name but in different namespaces
+								// but we can't have OAuthClients with same name (cluster level)
+								fmt.Sprintf("--client-id=%s", util.NameWithNamespace(cr.Namespace, cr.Name, cfg.OAuthClientIdSuffix)),
+								fmt.Sprintf("--client-secret=%s", cfg.OAuthClientSecret),
 								"--upstream=http://localhost:4000",
 								"--http-address=0.0.0.0:4180",
 								"--skip-auth-regex=/rest/sender,/rest/registry/device,/rest/prometheus/metrics,/rest/auth/config",
@@ -249,5 +252,20 @@ func newMDCDeploymentConfig(cr *mdcv1alpha1.MobileDeveloperConsole) (*openshifta
 				},
 			},
 		},
+	}, nil
+}
+
+func newOAuthClient(cr *mdcv1alpha1.MobileDeveloperConsole, redirectURI string) (*oauthv1.OAuthClient, error) {
+	return &oauthv1.OAuthClient{
+		ObjectMeta: metav1.ObjectMeta{
+			// need to prepend the CR namespace because
+			// there can be 2 MDC CRs with same name but in different namespaces
+			// but we can't have OAuthClients with same name (cluster level)
+			Name: util.NameWithNamespace(cr.Namespace, cr.Name, cfg.OAuthClientIdSuffix),
+			// no namespace
+		},
+		GrantMethod:  oauthv1.GrantHandlerAuto,
+		Secret:       cfg.OAuthClientSecret,
+		RedirectURIs: []string{redirectURI},
 	}, nil
 }

@@ -28,19 +28,6 @@ kubectl apply  -n mobile-developer-console -f deploy/crds/mdc_v1alpha1_mobiledev
 
 AFTER WORK - things that aren't done by the operator yet.
 
-MDC_ROUTE=$(oc -n mobile-developer-console get route example-mdc-mdc-proxy --template "{{.spec.host}}")
-
-cat <<EOF | oc apply -f -
-apiVersion: v1
-grantMethod: auto
-kind: OAuthClient
-metadata:
-  name: mobile-developer-console
-secret: SECRETPLACEHOLDER
-redirectURIs: ["https://${MDC_ROUTE}"]
-EOF
-
-
 # needed to make the MDC server side SA to list/watch/etc some resources in all namespaces
 oc create clusterrole mobileclient-admin --verb=create,delete,get,list,patch,update,watch --resource=mobileclients,secrets,configmaps
 oc adm policy add-cluster-role-to-user mobileclient-admin system:serviceaccount:mobile-developer-console:example-mdc

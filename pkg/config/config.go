@@ -1,6 +1,10 @@
 package config
 
-import "os"
+import (
+	"fmt"
+	"github.com/aerogear/mobile-developer-console-operator/pkg/util"
+	"os"
+)
 
 type Config struct {
 	OpenShiftHost string
@@ -15,9 +19,17 @@ type Config struct {
 
 	MDCImageStreamInitialImage        string
 	OauthProxyImageStreamInitialImage string
+
+	OAuthClientIdSuffix string
+	OAuthClientSecret   string
 }
 
 func New() Config {
+	defaultOAuthClientSecret, err := util.GeneratePassword()
+	if err != nil {
+		panic(fmt.Sprintf("error generating cookie secret. error : %v", err))
+	}
+
 	return Config{
 		OpenShiftHost: getReqEnv("OPENSHIFT_HOST"),
 
@@ -32,6 +44,9 @@ func New() Config {
 		// these are used when the image stream does not exist and created for the first time by the operator
 		MDCImageStreamInitialImage:        getEnv("MDC_IMAGE_STREAM_INITIAL_IMAGE", "quay.io/aerogear/mobile-developer-console:latest"),
 		OauthProxyImageStreamInitialImage: getEnv("OAUTH_PROXY_IMAGE_STREAM_INITIAL_IMAGE", "docker.io/openshift/oauth-proxy:v1.1.0"),
+
+		OAuthClientIdSuffix: getEnv("OAUTH_CLIENT_ID_SUFFIX", "mdc-oauth-client"),
+		OAuthClientSecret:   getEnv("OAUTH_CLIENT_SECRET", defaultOAuthClientSecret),
 	}
 }
 
@@ -40,6 +55,10 @@ func getEnv(key string, defaultVal string) string {
 		return value
 	}
 
+	err := os.Setenv(key, defaultVal)
+	if err != nil {
+		panic(fmt.Sprintf("Unable to set env var %s with value %s . Error is: %s", key, defaultVal, err))
+	}
 	return defaultVal
 }
 

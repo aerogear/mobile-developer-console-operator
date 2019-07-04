@@ -32,3 +32,7 @@ func GeneratePassword() (string, error) {
 	}
 	return strings.Replace(generatedPassword.String(), "-", "", -1), nil
 }
+
+func NameWithNamespace(namespace, name, suffix string) string {
+	return fmt.Sprintf("%s-%s-%s", namespace, name, suffix)
+}

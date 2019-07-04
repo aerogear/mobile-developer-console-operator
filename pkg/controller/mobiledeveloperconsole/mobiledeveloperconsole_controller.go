@@ -2,10 +2,12 @@ package mobiledeveloperconsole
 
 import (
 	"context"
+	"fmt"
 	mdcv1alpha1 "github.com/aerogear/mobile-developer-console-operator/pkg/apis/mdc/v1alpha1"
 	"github.com/aerogear/mobile-developer-console-operator/pkg/config"
 	openshiftappsv1 "github.com/openshift/api/apps/v1"
 	imagev1 "github.com/openshift/api/image/v1"
+	oauthv1 "github.com/openshift/api/oauth/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -80,6 +82,15 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	// Watch for changes to secondary resource Route and requeue the owner MobileDeveloperConsole
 	err = c.Watch(&source.Kind{Type: &routev1.Route{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &mdcv1alpha1.MobileDeveloperConsole{},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Watch for changes to secondary resource OAuthClient and requeue the owner MobileDeveloperConsole
+	err = c.Watch(&source.Kind{Type: &oauthv1.OAuthClient{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &mdcv1alpha1.MobileDeveloperConsole{},
 	})
@@ -298,6 +309,32 @@ func (r *ReconcileMobileDeveloperConsole) Reconcile(request reconcile.Request) (
 
 		// DeploymentConfig created successfully - don't requeue
 		return reconcile.Result{}, nil
+	} else if err != nil {
+		return reconcile.Result{}, err
+	}
+	//#endregion
+
+	//#region OAuthClient
+	// as we create the route with TLS above, we can just hardcode https here
+	oAuthClient, err := newOAuthClient(instance, fmt.Sprintf("https://%s", foundOauthProxyRoute.Spec.Host))
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// Set MobileDeveloperConsole instance as the owner and controller
+	if err := controllerutil.SetControllerReference(instance, oAuthClient, r.scheme); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// Check if this Oauth Client already exists
+	foundOAuthClient := &oauthv1.OAuthClient{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{Name: oAuthClient.Name}, foundOAuthClient)
+	if err != nil && errors.IsNotFound(err) {
+		reqLogger.Info("Creating a new OAuthClient", "OAuthClient.Name", oAuthClient.Name)
+		err = r.client.Create(context.TODO(), oAuthClient)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
 	} else if err != nil {
 		return reconcile.Result{}, err
 	}
