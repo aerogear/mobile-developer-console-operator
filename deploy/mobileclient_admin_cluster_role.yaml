@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mobileclient-admin-cluster
+rules:
+  - apiGroups:
+      - mobile.k8s.io
+    resources:
+      - mobileclients
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
