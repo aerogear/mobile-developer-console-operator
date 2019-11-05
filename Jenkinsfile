@@ -164,7 +164,7 @@ pipeline {
             }
             environment {
                 // qe-pipeline-library step
-                DOCKER_DEV_TAG = getDevTag()
+                DOCKER_DEV_TAG = getDevTag("${env.CLONED_REPOSITORY_PATH}")
             }
             steps{
                 // qe-pipeline-library step
