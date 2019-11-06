@@ -158,7 +158,22 @@ pipeline {
                 )
             }
         }
-        stage("Create a 'dev' and 'latest' tag from 'master'") {
+        stage("Create a 'latest' tag from 'master'") {
+            when {
+                branch 'master'
+            }
+            steps{
+                // qe-pipeline-library step
+                tagRemoteContainerImage(
+                    credentialsId: "${env.CREDENTIALS_ID}",
+                    sourceImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME}",
+                    targetImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME_latest}",
+                    deleteOriginalImage: false
+                )
+            }
+        }
+        // rebuild and push the image so that it points to master tag of operand (for nightly testing purposes)
+        stage("Rebuild and push 'dev' image for nightly testing") {
             when {
                 branch 'master'
             }
@@ -167,18 +182,33 @@ pipeline {
                 DOCKER_DEV_TAG = getDevTag("${env.CLONED_REPOSITORY_PATH}")
             }
             steps{
+                dir("${env.CLONED_REPOSITORY_PATH}") {
+                    // remove original build
+                    sh "rm -rf build/_output"
+
+                    // replace specific operand version with 'master'
+                    sh 'sed -i -E \'s/"MDC_IMAGE_STREAM_TAG", "[a-zA-Z0-9.+-]*"/"MDC_IMAGE_STREAM_TAG", "master"/\' pkg/config/config.go'
+                    sh 'sed -i -E \'s/quay.io\\/aerogear\\/mobile-developer-console:[a-zA-Z0-9.+-]*/quay.io\\/aerogear\\/mobile-developer-console:master/\' pkg/config/config.go'
+
+                    // compile
+                    sh "make code/compile"
+
+                    // build image with full dev tag
+                    // qe-pipeline-library step
+                    dockerBuildAndPush(
+                        credentialsId: "${env.CREDENTIALS_ID}",
+                        containerRegistryServerName: "quay.io",
+                        containerImageName: "quay.io/aerogear/${env.OPERATOR_NAME}:${env.DOCKER_DEV_TAG}",
+                        pathToDockerfile: "build/Dockerfile"
+                    )
+                }
+
+                // create a 'dev' tag pointing at the full dev tag
                 // qe-pipeline-library step
                 tagRemoteContainerImage(
                     credentialsId: "${env.CREDENTIALS_ID}",
-                    sourceImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME}",
-                    targetImage: "quay.io/aerogear/${env.OPERATOR_NAME}:${env.DOCKER_DEV_TAG}",
-                    deleteOriginalImage: false
-                )
-                // qe-pipeline-library step
-                tagRemoteContainerImage(
-                    credentialsId: "${env.CREDENTIALS_ID}",
-                    sourceImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME}",
-                    targetImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME_latest}",
+                    sourceImage: "quay.io/aerogear/${env.OPERATOR_NAME}:${env.DOCKER_DEV_TAG}",
+                    targetImage: "quay.io/aerogear/${env.OPERATOR_NAME}:dev",
                     deleteOriginalImage: false
                 )
             }
