@@ -168,49 +168,6 @@ browsers. Instructions at the top of the document for enabling CORS in OpenShift
 
 |===
 
-=== Image Streams
-
-The operator uses 2 image streams and what image streams to use are configurable
-with environment variables.
-
-Mobile Developer Console and OAuth proxy image stream are created within the same namespace by the operator.
-
-The following table shows the available environment variable names, along with their default values:
-
-.Environment Variables
-|===
-|Name |Default |Purpose
-
-|`MDC_IMAGE_STREAM_NAME`
-|`mdc-imagestream`
-| Name of the Mobile Developer Console image stream that will be created by the operator.
-
-|`MDC_IMAGE_STREAM_TAG`
-|`latest`
-| Tag of the Mobile Developer Console image stream that will be created by the operator.
-
-|`MDC_IMAGE_STREAM_INITIAL_IMAGE`
-|`quay.io/aerogear/mobile-developer-console:latest`
-| Initial image for the Mobile Developer Console image stream that will be created by the operator.
-
-|`OAUTH_PROXY_IMAGE_STREAM_NAME`
-|`mdc-oauth-proxy-imagestream`
-| Name of the OAuth proxy image stream that will be created by the operator.
-
-|`OAUTH_PROXY_IMAGE_STREAM_TAG`
-|`latest`
-| Tag of the OAuth proxy image stream that will be created by the operator.
-
-|`OAUTH_PROXY_IMAGE_STREAM_INITIAL_IMAGE`
-|`docker.io/openshift/oauth-proxy:v1.1.0`
-| Initial image for the OAuth proxy image stream that will be created by the operator.
-
-|===
-
-CAUTION: Re-deploying this operator with customized images will cause
-_all_ instances owned by the operator to be updated.
-
-
 === Container Names
 
 If you would like to modify the container names, you can use the following environment variables.

@@ -101,12 +101,12 @@ This alert indicates that the Service pod(s) is/are using more Memory than expec
 . Scale the Mobile Develper Console pod
 .. Check the number of DESIRED and CURRENT replicas, and make sure that they're the same:
 ----
-oc get deploymentconfig --selector='app=mdc'
-NAME      REVISION   DESIRED   CURRENT   TRIGGERED BY
-mdc       3          1         1         config,image(mdc-imagestream:1.1.11),image(mdc-oauth-proxy-imagestream:latest)
+oc get deployment --selector='app=mdc'
+NAME          DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+mdc           3         3         3            1           11m
 ----
 If they're not, this may indicate a problem with the ability to scale up (capacity, missing images, etc), or the ability to scale down (a node where a pod was scheduled might be in trouble etc.).
-.. Scale the replication controller if more pods are desired by running `oc scale deploymentconfig --selector='app=mdc' --replicas=X` where X is the number of desired pods.
+.. Scale the replication controller if more pods are desired by running `oc scale deployment --selector='app=mdc' --replicas=X` where X is the number of desired pods.
 
 == Validate
 
@@ -137,16 +137,6 @@ mdc-6-glhzb                                             1/1       Running   2   
 mobile-developer-console-operator-b6d447bcf-c7qfl       1/1       Running   6          12d
 ----
 +
-. Check that the image streams for the Service and Oauth Proxy were created with success by running `oc get imagestream`. 
-+
-[source,shell]
-----
-$ oc get imagestream
-NAME                          DOCKER REPO                                                                               TAGS      UPDATED
-mdc-imagestream               docker-registry.default.svc:5000/mobile-developer-console/mdc-imagestream                 latest    12 days ago
-mdc-oauth-proxy-imagestream   docker-registry.default.svc:5000/mobile-developer-console/mdc-oauth-proxy-imagestream     latest    12 days ago
-----
-+
 . Check that the route to expose the service was created successfully by running `oc get route | grep mdc-mdc-proxy`. 
 +
 [source,shell]
@@ -154,12 +144,12 @@ mdc-oauth-proxy-imagestream   docker-registry.default.svc:5000/mobile-developer-
 $ oc get route | grep mdc-mdc-proxy
 mdc-mdc-proxy   https://<route-name>-mobile-developer-console.apps.<cluster-route>             mdc-mdc-proxy   <all>     edge/None     None
 ----
-. Check that the DeploymentConfig to deploy the Service was created successfully by running `oc get deploymentconfig | grep mdc`.  
+. Check that the Deployment to deploy the Service was created successfully by running `oc get deployment | grep mdc`.
 +
 [source,shell]
 ----
-$ oc get deploymentconfig | grep mdc
-mdc   1          2         2         config,image(mdc-imagestream:1.1.11),image(mdc-oauth-proxy-imagestream:latest)
+$ oc get deployment | grep mdc
+mdc                         1         1         1            1           7m
 ----
 +
 . Check that there are 3 Services created in the namespace, one for the service, one for the OAuth proxy and one for the operator

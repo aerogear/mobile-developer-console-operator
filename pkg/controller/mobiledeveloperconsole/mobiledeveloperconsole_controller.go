@@ -3,6 +3,8 @@ package mobiledeveloperconsole
 import (
 	"context"
 	"fmt"
+	"github.com/aerogear/mobile-developer-console-operator/pkg/constants"
+	"k8s.io/client-go/rest"
 
 	mdcv1alpha1 "github.com/aerogear/mobile-developer-console-operator/pkg/apis/mdc/v1alpha1"
 	"github.com/aerogear/mobile-developer-console-operator/pkg/config"
@@ -14,10 +16,12 @@ import (
 	openshiftappsv1 "github.com/openshift/api/apps/v1"
 	imagev1 "github.com/openshift/api/image/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -62,6 +66,7 @@ func newReconciler(mgr manager.Manager) reconcile.Reconciler {
 		scheme:  mgr.GetScheme(),
 		context: ctx,
 		cancel:  cancel,
+		config:  mgr.GetConfig(),
 	}
 }
 
@@ -134,6 +139,15 @@ func add(mgr manager.Manager, r reconcile.Reconciler, autodetectChannel chan sch
 		return err
 	}
 
+	// Watch for changes to secondary resource Deployment and requeue the owner MobileDeveloperConsole
+	err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &mdcv1alpha1.MobileDeveloperConsole{},
+	})
+	if err != nil {
+		return err
+	}
+
 	// Watch for changes to secondary resource ImageStream and requeue the owner MobileDeveloperConsole
 	err = c.Watch(&source.Kind{Type: &imagev1.ImageStream{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
@@ -175,6 +189,7 @@ type ReconcileMobileDeveloperConsole struct {
 	scheme  *runtime.Scheme
 	context context.Context
 	cancel  context.CancelFunc
+	config  *rest.Config
 }
 
 // Reconcile reads the state of the cluster for a MobileDeveloperConsole object and makes changes based on the state read
@@ -208,6 +223,100 @@ func (r *ReconcileMobileDeveloperConsole) Reconcile(request reconcile.Request) (
 			return reconcile.Result{}, err
 		}
 	}
+
+	//#region MIGRATION from old resources to new ones
+	// TODO: This migration block should be removed after a major release!
+	// TODO: in operator version 0.3.0, we were using DCs and ImageStreams.
+	// TODO: in 0.4.0, we introduced this code block to migrate from old resources to new ones.
+	// TODO: in 1.0.0, we should get rid of this migration block, as well as unneeded permissions
+	// TODO: to access these old resources.
+
+	clientset, err := kubernetes.NewForConfig(r.config)
+
+	dcResourceExists, err := util.ApiVersionExists(clientset.DiscoveryClient, "apps.openshift.io/v1")
+	if err != nil {
+		reqLogger.Error(err, "Unable to check if a OpenShift's apps.openshift.io/v1 api version is available.")
+		return reconcile.Result{}, err
+	}
+
+	imageStreamResourceExists, err := util.ApiVersionExists(clientset.DiscoveryClient, "image.openshift.io/v1")
+	if err != nil {
+		reqLogger.Error(err, "Unable to check if a OpenShift's image.openshift.io/v1 api version is available.")
+		return reconcile.Result{}, err
+	}
+
+	if dcResourceExists {
+		//#region DELETE MDC DeploymentConfig as we moved to Kube Deployments now
+		mdcDeploymentConfigObjectMeta := metav1.ObjectMeta{
+			Namespace: instance.Namespace,
+			Name:      instance.Name, // this is the name of the DeploymentConfig we were using
+		}
+		foundMDCDeploymentConfig := &openshiftappsv1.DeploymentConfig{}
+		err = r.client.Get(context.TODO(), types.NamespacedName{Name: mdcDeploymentConfigObjectMeta.Name, Namespace: mdcDeploymentConfigObjectMeta.Namespace}, foundMDCDeploymentConfig)
+		if err != nil && !errors.IsNotFound(err) {
+			// if there is another error than the DC not being found
+			reqLogger.Error(err, "Unable to check if a DeploymentConfig exists for MDC.", "DeploymentConfig.Namespace", foundMDCDeploymentConfig.Namespace, "DeploymentConfig.Name", foundMDCDeploymentConfig.Name)
+			return reconcile.Result{}, err
+		} else if err == nil {
+			reqLogger.Info("Found a DeploymentConfig for MDC. Deleting it.", "DeploymentConfig.Namespace", foundMDCDeploymentConfig.Namespace, "DeploymentConfig.Name", foundMDCDeploymentConfig.Name)
+			err = r.client.Delete(context.TODO(), foundMDCDeploymentConfig)
+			if err != nil {
+				reqLogger.Error(err, "Unable to delete the DeploymentConfig for MDC.", "DeploymentConfig.Namespace", foundMDCDeploymentConfig.Namespace, "DeploymentConfig.Name", foundMDCDeploymentConfig.Name)
+				return reconcile.Result{}, err
+			}
+		}
+		//#endregion
+	}
+
+	if imageStreamResourceExists {
+		//#region DELETE OAuth Proxy ImageStream as we moved to using static image references
+		oauthProxyImageStreamObjectMeta := metav1.ObjectMeta{
+			Namespace: instance.Namespace,
+			Name:      "mdc-oauth-proxy-imagestream", // this is the name of the image stream we were using
+		}
+		foundOAuthProxyImageStream := &imagev1.ImageStream{}
+		err = r.client.Get(context.TODO(), types.NamespacedName{Name: oauthProxyImageStreamObjectMeta.Name, Namespace: oauthProxyImageStreamObjectMeta.Namespace}, foundOAuthProxyImageStream)
+		if err != nil && !errors.IsNotFound(err) {
+			// if there is another error than the DC not being found
+			reqLogger.Error(err, "Unable to check if a ImageStream exists for OAuth Proxy.", "ImageStream.Namespace", foundOAuthProxyImageStream.Namespace, "ImageStream.Name", foundOAuthProxyImageStream.Name)
+			// don't do anything.
+			// we simply log this, and it should be ok to have some leftover ImageStreams
+		} else if err == nil {
+			reqLogger.Info("Found a ImageStream for OAuth Proxy. Deleting it.", "ImageStream.Namespace", foundOAuthProxyImageStream.Namespace, "ImageStream.Name", foundOAuthProxyImageStream.Name)
+			err = r.client.Delete(context.TODO(), foundOAuthProxyImageStream)
+			if err != nil {
+				reqLogger.Error(err, "Unable to delete ImageStream. Skipping it.", "ImageStream.Namespace", foundOAuthProxyImageStream.Namespace, "ImageStream.Name", foundOAuthProxyImageStream.Name)
+				// don't do anything.
+				// we simply log this, and it should be ok to have some leftover ImageStreams
+			}
+		}
+		//#endregion
+
+		//#region DELETE MDC ImageStream as we moved to using static image references
+		mdcImageStreamObjectMeta := metav1.ObjectMeta{
+			Namespace: instance.Namespace,
+			Name:      "mdc-imagestream", // this is the name of the image stream we were using
+		}
+		foundMCDImageStream := &imagev1.ImageStream{}
+		err = r.client.Get(context.TODO(), types.NamespacedName{Name: mdcImageStreamObjectMeta.Name, Namespace: mdcImageStreamObjectMeta.Namespace}, foundMCDImageStream)
+		if err != nil && !errors.IsNotFound(err) {
+			// if there is another error than the ImageStream not being found
+			reqLogger.Error(err, "Unable to check if an ImageStream exists for MDC.", "ImageStream.Namespace", foundMCDImageStream.Namespace, "ImageStream.Name", foundMCDImageStream.Name)
+			// don't do anything.
+			// we simply log this, and it should be ok to have some leftover ImageStreams
+		} else if err == nil {
+			reqLogger.Info("Found an ImageStream for MDC. Deleting it.", "ImageStream.Namespace", foundMCDImageStream.Namespace, "ImageStream.Name", foundMCDImageStream.Name)
+			err = r.client.Delete(context.TODO(), foundMCDImageStream)
+			if err != nil {
+				reqLogger.Error(err, "Unable to delete ImageStream. Skipping it.", "ImageStream.Namespace", foundMCDImageStream.Namespace, "ImageStream.Name", foundMCDImageStream.Name)
+				// don't do anything.
+				// we simply log this, and it should be ok to have some leftover ImageStreams
+			}
+		}
+		//#endregion
+	}
+
+	//#endregion
 
 	//#region ServiceAccount
 	serviceAccount, err := newMDCServiceAccount(instance)
@@ -363,77 +472,68 @@ func (r *ReconcileMobileDeveloperConsole) Reconcile(request reconcile.Request) (
 	}
 	//#endregion
 
-	//#region OauthProxy ImageStream
-	oauthProxyImageStream, err := newOauthProxyImageStream(instance)
-	if err != nil {
+	//#region MDC Deployment
+	mdcDeployment, err := newMDCDeployment(instance)
+
+	if err := controllerutil.SetControllerReference(instance, mdcDeployment, r.scheme); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	// Set MobileDeveloperConsole instance as the owner and controller
-	if err := controllerutil.SetControllerReference(instance, oauthProxyImageStream, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Check if this ImageStream already exists
-	foundOauthProxyImageStream := &imagev1.ImageStream{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: oauthProxyImageStream.Name, Namespace: oauthProxyImageStream.Namespace}, foundOauthProxyImageStream)
+	// Check if this Deployment already exists
+	foundMDCDeployment := &appsv1.Deployment{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{Name: mdcDeployment.Name, Namespace: mdcDeployment.Namespace}, foundMDCDeployment)
 	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new ImageStream", "ImageStream.Namespace", foundOauthProxyImageStream.Namespace, "ImageStream.Name", oauthProxyImageStream.Name)
-		err = r.client.Create(context.TODO(), oauthProxyImageStream)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-	} else if err != nil {
-		return reconcile.Result{}, err
-	}
-	//#endregion
-
-	//#region MDC ImageStream
-	mdcImageStream, err := newMDCImageStream(instance)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Set MobileDeveloperConsole instance as the owner and controller
-	if err := controllerutil.SetControllerReference(instance, mdcImageStream, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Check if this ImageStream already exists
-	foundMDCImageStream := &imagev1.ImageStream{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: mdcImageStream.Name, Namespace: mdcImageStream.Namespace}, foundMDCImageStream)
-	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new ImageStream", "ImageStream.Namespace", mdcImageStream.Namespace, "ImageStream.Name", mdcImageStream.Name)
-		err = r.client.Create(context.TODO(), mdcImageStream)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-	} else if err != nil {
-		return reconcile.Result{}, err
-	}
-	//#endregion
-
-	//#region MDC DeploymentConfig
-	mdcDeploymentConfig, err := newMDCDeploymentConfig(instance)
-
-	if err := controllerutil.SetControllerReference(instance, mdcDeploymentConfig, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Check if this DeploymentConfig already exists
-	foundMDCDeploymentConfig := &openshiftappsv1.DeploymentConfig{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: mdcDeploymentConfig.Name, Namespace: mdcDeploymentConfig.Namespace}, foundMDCDeploymentConfig)
-	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new DeploymentConfig", "DeploymentConfig.Namespace", mdcDeploymentConfig.Namespace, "DeploymentConfig.Name", mdcDeploymentConfig.Name)
-		err = r.client.Create(context.TODO(), mdcDeploymentConfig)
+		reqLogger.Info("Creating a new Deployment", "Deployment.Namespace", mdcDeployment.Namespace, "Deployment.Name", mdcDeployment.Name)
+		err = r.client.Create(context.TODO(), mdcDeployment)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 
-		// DeploymentConfig created successfully - don't requeue
+		// Deployment created successfully - don't requeue
 		return reconcile.Result{}, nil
 	} else if err != nil {
 		return reconcile.Result{}, err
+	} else {
+		desiredMDCImage := constants.MDCImage
+		desiredProxyImage := constants.OauthProxyImage
+
+		mdcContainerSpec := util.FindContainerSpec(foundMDCDeployment, cfg.MDCContainerName)
+		if mdcContainerSpec == nil {
+			reqLogger.Info("Unable to do image reconcile: Unable to find container spec in deployment", "Deployment.Namespace", foundMDCDeployment.Namespace, "Deployment.Name", foundMDCDeployment.Name, "ContainerSpec", cfg.MDCContainerName)
+			return reconcile.Result{Requeue: true}, nil
+		} else if mdcContainerSpec.Image != desiredMDCImage {
+			reqLogger.Info("Container spec in deployment is using a different image. Going to update it now.", "Deployment.Namespace", foundMDCDeployment.Namespace, "Deployment.Name", foundMDCDeployment.Name, "ContainerSpec", cfg.MDCContainerName, "ExistingImage", mdcContainerSpec.Image, "DesiredImage", desiredMDCImage)
+
+			// update
+			util.UpdateContainerSpecImage(foundMDCDeployment, cfg.MDCContainerName, desiredMDCImage)
+
+			// enqueue
+			err = r.client.Update(context.TODO(), foundMDCDeployment)
+			if err != nil {
+				reqLogger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundMDCDeployment.Namespace, "Deployment.Name", foundMDCDeployment.Name)
+				return reconcile.Result{}, err
+			}
+			return reconcile.Result{Requeue: true}, nil
+		}
+
+		proxyContainerSpec := util.FindContainerSpec(foundMDCDeployment, cfg.OauthProxyContainerName)
+		if proxyContainerSpec == nil {
+			reqLogger.Info("Unable to do image reconcile: Unable to find container spec in deployment", "Deployment.Namespace", foundMDCDeployment.Namespace, "Deployment.Name", foundMDCDeployment.Name, "ContainerSpec", cfg.OauthProxyContainerName)
+			return reconcile.Result{Requeue: true}, nil
+		} else if proxyContainerSpec.Image != desiredProxyImage {
+			reqLogger.Info("Container spec in deployment is using a different image. Going to update it now.", "Deployment.Namespace", foundMDCDeployment.Namespace, "Deployment.Name", foundMDCDeployment.Name, "ContainerSpec", cfg.OauthProxyContainerName, "ExistingImage", proxyContainerSpec.Image, "DesiredImage", desiredProxyImage)
+
+			// update
+			util.UpdateContainerSpecImage(foundMDCDeployment, cfg.OauthProxyContainerName, desiredProxyImage)
+
+			// enqueue
+			err = r.client.Update(context.TODO(), foundMDCDeployment)
+			if err != nil {
+				reqLogger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundMDCDeployment.Namespace, "Deployment.Name", foundMDCDeployment.Name)
+				return reconcile.Result{}, err
+			}
+			return reconcile.Result{Requeue: true}, nil
+		}
 	}
 	//#endregion
 
@@ -546,7 +646,7 @@ func (r *ReconcileMobileDeveloperConsole) Reconcile(request reconcile.Request) (
 	}
 	//#endregion mobile-developer RoleBinding
 
-	if foundMDCDeploymentConfig.Status.ReadyReplicas > 0 && instance.Status.Phase != mdcv1alpha1.PhaseComplete {
+	if foundMDCDeployment.Status.ReadyReplicas > 0 && instance.Status.Phase != mdcv1alpha1.PhaseComplete {
 		instance.Status.Phase = mdcv1alpha1.PhaseComplete
 		r.client.Status().Update(context.TODO(), instance)
 	}

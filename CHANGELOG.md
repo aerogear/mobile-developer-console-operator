@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.4.0] - 2019-11-07
+### Changed
+- Use Deployments instead of DeploymentConfigs
+- Use static image references instead of ImageStreams
+
+### Removed
+- Delete old resources that were created by the previous versions of the operator 
+
 ## [0.3.0] - 2019-09-13
 
 ### Changed
