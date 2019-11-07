@@ -2,6 +2,7 @@ package mobiledeveloperconsole
 
 import (
 	"fmt"
+	"github.com/aerogear/mobile-developer-console-operator/pkg/constants"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -13,9 +14,8 @@ import (
 	mdcv1alpha1 "github.com/aerogear/mobile-developer-console-operator/pkg/apis/mdc/v1alpha1"
 	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
 	integreatlyv1alpha1 "github.com/integr8ly/grafana-operator/pkg/apis/integreatly/v1alpha1"
-	openshiftappsv1 "github.com/openshift/api/apps/v1"
-	imagev1 "github.com/openshift/api/image/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,55 +99,7 @@ func newOauthProxyRoute(cr *mdcv1alpha1.MobileDeveloperConsole) (*routev1.Route,
 	}, nil
 }
 
-func newOauthProxyImageStream(cr *mdcv1alpha1.MobileDeveloperConsole) (*imagev1.ImageStream, error) {
-	return &imagev1.ImageStream{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: cr.Namespace,
-			Name:      cfg.OauthProxyImageStreamName,
-			Labels:    util.Labels(&cr.ObjectMeta, cfg.OauthProxyImageStreamName),
-		},
-		Spec: imagev1.ImageStreamSpec{
-			Tags: []imagev1.TagReference{
-				{
-					Name: cfg.OauthProxyImageStreamTag,
-					From: &corev1.ObjectReference{
-						Kind: "DockerImage",
-						Name: cfg.OauthProxyImageStreamInitialImage,
-					},
-					ImportPolicy: imagev1.TagImportPolicy{
-						Scheduled: false,
-					},
-				},
-			},
-		},
-	}, nil
-}
-
-func newMDCImageStream(cr *mdcv1alpha1.MobileDeveloperConsole) (*imagev1.ImageStream, error) {
-	return &imagev1.ImageStream{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: cr.Namespace,
-			Name:      cfg.MDCImageStreamName,
-			Labels:    util.Labels(&cr.ObjectMeta, cfg.MDCImageStreamName),
-		},
-		Spec: imagev1.ImageStreamSpec{
-			Tags: []imagev1.TagReference{
-				{
-					Name: cfg.MDCImageStreamTag,
-					From: &corev1.ObjectReference{
-						Kind: "DockerImage",
-						Name: cfg.MDCImageStreamInitialImage,
-					},
-					ImportPolicy: imagev1.TagImportPolicy{
-						Scheduled: false,
-					},
-				},
-			},
-		},
-	}, nil
-}
-
-func newMDCDeploymentConfig(cr *mdcv1alpha1.MobileDeveloperConsole) (*openshiftappsv1.DeploymentConfig, error) {
+func newMDCDeployment(cr *mdcv1alpha1.MobileDeveloperConsole) (*appsv1.Deployment, error) {
 	labels := map[string]string{
 		"app":     cr.Name,
 		"service": "mdc",
@@ -158,43 +110,20 @@ func newMDCDeploymentConfig(cr *mdcv1alpha1.MobileDeveloperConsole) (*openshifta
 		return nil, errors.Wrap(err, "error generating cookie secret")
 	}
 
-	return &openshiftappsv1.DeploymentConfig{
+	replicas := int32(1)
+
+	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cr.Name,
 			Namespace: cr.Namespace,
 			Labels:    labels,
 		},
-		Spec: openshiftappsv1.DeploymentConfigSpec{
-			Replicas: 1,
-			Selector: labels,
-			Triggers: openshiftappsv1.DeploymentTriggerPolicies{
-				openshiftappsv1.DeploymentTriggerPolicy{
-					Type: openshiftappsv1.DeploymentTriggerOnConfigChange,
-				},
-				openshiftappsv1.DeploymentTriggerPolicy{
-					Type: openshiftappsv1.DeploymentTriggerOnImageChange,
-					ImageChangeParams: &openshiftappsv1.DeploymentTriggerImageChangeParams{
-						Automatic:      true,
-						ContainerNames: []string{cfg.MDCContainerName},
-						From: corev1.ObjectReference{
-							Kind: "ImageStreamTag",
-							Name: cfg.MDCImageStreamName + ":" + cfg.MDCImageStreamTag,
-						},
-					},
-				},
-				openshiftappsv1.DeploymentTriggerPolicy{
-					Type: openshiftappsv1.DeploymentTriggerOnImageChange,
-					ImageChangeParams: &openshiftappsv1.DeploymentTriggerImageChangeParams{
-						Automatic:      true,
-						ContainerNames: []string{cfg.OauthProxyContainerName},
-						From: corev1.ObjectReference{
-							Kind: "ImageStreamTag",
-							Name: cfg.OauthProxyImageStreamName + ":" + cfg.OauthProxyImageStreamTag,
-						},
-					},
-				},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
 			},
-			Template: &corev1.PodTemplateSpec{
+			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
@@ -203,7 +132,7 @@ func newMDCDeploymentConfig(cr *mdcv1alpha1.MobileDeveloperConsole) (*openshifta
 					Containers: []corev1.Container{
 						{
 							Name:            cfg.MDCContainerName,
-							Image:           cfg.MDCImageStreamName + ":" + cfg.MDCImageStreamTag,
+							Image:           constants.MDCImage,
 							ImagePullPolicy: corev1.PullAlways,
 							Env: []corev1.EnvVar{
 								{
@@ -255,7 +184,7 @@ func newMDCDeploymentConfig(cr *mdcv1alpha1.MobileDeveloperConsole) (*openshifta
 						},
 						{
 							Name:            cfg.OauthProxyContainerName,
-							Image:           cfg.OauthProxyImageStreamName + ":" + cfg.OauthProxyImageStreamTag,
+							Image:           constants.OauthProxyImage,
 							ImagePullPolicy: corev1.PullAlways,
 							Ports: []corev1.ContainerPort{
 								{

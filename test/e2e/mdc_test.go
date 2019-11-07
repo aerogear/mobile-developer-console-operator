@@ -2,13 +2,13 @@ package e2e
 
 import (
 	goctx "context"
+	"k8s.io/client-go/kubernetes"
 	"testing"
 	"time"
 
-	apis "github.com/aerogear/mobile-developer-console-operator/pkg/apis"
+	"github.com/aerogear/mobile-developer-console-operator/pkg/apis"
 	mdcv1alpha1 "github.com/aerogear/mobile-developer-console-operator/pkg/apis/mdc/v1alpha1"
 	operator "github.com/aerogear/mobile-developer-console-operator/pkg/apis/mdc/v1alpha1"
-	dcv1 "github.com/openshift/client-go/apps/clientset/versioned/typed/apps/v1"
 	framework "github.com/operator-framework/operator-sdk/pkg/test"
 	"github.com/operator-framework/operator-sdk/pkg/test/e2eutil"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -67,14 +67,8 @@ func MdcTest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Additional client needed for retrieving deploymentConfigs
-	dcV1Client, err := dcv1.NewForConfig(f.KubeConfig)
-	if err != nil {
-		t.Fatalf("Failed to initialize DeploymentConfig Client : %v", err)
-	}
-
 	// Ensure MDC was deployed successfully
-	if err := waitForDeploymentConfig(t, *dcV1Client, namespace, mdcAppName, 1); err != nil {
+	if err := waitForDeployment(t, f.KubeClient, namespace, mdcAppName, 1); err != nil {
 		t.Fatal(err)
 	}
 	t.Log("UPS deployment was successful")
@@ -85,7 +79,7 @@ func MdcTest(t *testing.T) {
 	}
 
 	// Ensure MDC was deleted successfully
-	if err := waitForDeploymentConfig(t, *dcV1Client, namespace, mdcAppName, 0); err != nil {
+	if err := waitForDeployment(t, f.KubeClient, namespace, mdcAppName, 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Log("UPS was deleted successfully")
@@ -141,9 +135,9 @@ func deleteMDCCustomResource(t *testing.T, f *framework.Framework, ctx *framewor
 
 // Helper function for checking whether specified DeploymentConfig has a certain number of available replicas
 // Copied & edited from https://github.com/operator-framework/operator-sdk/blob/f6d83791dd8880f0e33d549343642aabadc9d3a0/pkg/test/e2eutil/wait_util.go#L46
-func waitForDeploymentConfig(t *testing.T, dcV1Client dcv1.AppsV1Client, namespace, name string, replicas int) error {
+func waitForDeployment(t *testing.T, kubeclient kubernetes.Interface, namespace, name string, replicas int) error {
 	err := wait.Poll(retryInterval, timeout, func() (done bool, err error) {
-		dc, err := dcV1Client.DeploymentConfigs(namespace).Get(name, metav1.GetOptions{IncludeUninitialized: true})
+		dc, err := kubeclient.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{IncludeUninitialized: true})
 
 		if err != nil {
 			if apierrors.IsNotFound(err) && replicas == 0 {
@@ -159,12 +153,12 @@ func waitForDeploymentConfig(t *testing.T, dcV1Client dcv1.AppsV1Client, namespa
 		if int(dc.Status.AvailableReplicas) == replicas {
 			return true, nil
 		}
-		t.Logf("Waiting for full availability of %s Deployment Config (%d/%d)\n", name, dc.Status.AvailableReplicas, replicas)
+		t.Logf("Waiting for full availability of %s Deployment (%d/%d)\n", name, dc.Status.AvailableReplicas, replicas)
 		return false, nil
 	})
 	if err != nil {
 		return err
 	}
-	t.Logf("Deployment Config has now requested number of replicas: (%d/%d)\n", replicas, replicas)
+	t.Logf("Deployment has now requested number of replicas: (%d/%d)\n", replicas, replicas)
 	return nil
 }

@@ -85,13 +85,24 @@ rules:
   - update
   - patch
   - delete
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 
 # These are needed to be able to run the operator itself
 - apiGroups:
   - apps
   resources:
   - replicasets
-  - deployments
   verbs:
   - get
 - apiGroups:
