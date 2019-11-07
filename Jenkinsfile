@@ -167,7 +167,7 @@ pipeline {
                 tagRemoteContainerImage(
                     credentialsId: "${env.CREDENTIALS_ID}",
                     sourceImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME}",
-                    targetImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME_latest}",
+                    targetImage: "${env.OPERATOR_CONTAINER_IMAGE_NAME_LATEST}",
                     deleteOriginalImage: false
                 )
             }
